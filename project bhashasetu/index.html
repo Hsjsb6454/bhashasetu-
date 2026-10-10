@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bharat Bhasha - Learn Indian Languages</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>भाषा · ভাষা · மொழி</h1>
+  <p>Learn which language each Indian state speaks</p>
+  <nav id="nav" hidden>
+    <button data-tab="learn">Learn</button>
+    <button data-tab="quiz">Quiz</button>
+    <button data-tab="progress">My Progress</button>
+    <button data-tab="translate">Translator</button>
+    <button data-tab="admin" id="adminBtn" hidden>Admin</button>
+    <button id="logout">Log out</button>
+  </nav>
+</header>
+
+<main>
+  <!-- LOGIN -->
+  <section id="auth" class="panel">
+    <h2>Sign in</h2>
+    <input id="u" placeholder="Username" autocomplete="username">
+    <input id="p" type="password" placeholder="Password" autocomplete="current-password">
+    <div class="row">
+      <button id="loginBtn">Log in</button>
+      <button id="regBtn" class="ghost">Create account</button>
+    </div>
+    <p id="authMsg" class="msg" role="alert"></p>
+  </section>
+
+  <!-- LEARN -->
+  <section id="learn" class="panel tab" hidden>
+    <h2>Pick a language to learn</h2>
+    <div id="chips" class="chips"></div>
+    <div id="detail"></div>
+    <h2>States and their main language</h2>
+    <p class="hint">Click a state to open its language lesson.</p>
+    <input id="filter" placeholder="Search a state or language">
+    <table><thead><tr><th>State</th><th>Language</th></tr></thead><tbody id="stateRows"></tbody></table>
+  </section>
+
+  <!-- QUIZ -->
+  <section id="quiz" class="panel tab" hidden>
+    <h2>Quiz</h2>
+    <label for="quizType">Quiz type</label>
+    <select id="quizType">
+      <option value="mixed">Mixed (states + phrases)</option>
+      <option value="state">Which language does a state speak?</option>
+      <option value="meaning">What does this phrase mean?</option>
+      <option value="say">How do you say it in the language?</option>
+    </select>
+    <p id="focusNote" class="hint"></p>
+    <button id="startQuiz">Start quiz</button>
+    <div id="quizBox"></div>
+  </section>
+
+  <!-- PROGRESS -->
+  <section id="progress" class="panel tab" hidden>
+    <h2>My progress</h2>
+    <div id="summary" class="summary"></div>
+    <div class="bar"><div id="barFill"></div></div>
+    <table><thead><tr><th>Date</th><th>Score</th></tr></thead><tbody id="attempts"></tbody></table>
+  </section>
+
+  <!-- TRANSLATOR -->
+  <section id="translate" class="panel tab" hidden>
+    <h2>Translator</h2>
+    <div class="row">
+      <select id="from"></select>
+      <button id="swap" class="ghost" aria-label="Swap languages">⇄</button>
+      <select id="to"></select>
+    </div>
+    <input id="word" placeholder="Type a word: hello, thank you, water">
+    <button id="tBtn">Translate</button>
+    <p id="tOut" class="result"></p>
+  </section>
+
+  <!-- ADMIN -->
+  <section id="admin" class="panel tab" hidden>
+    <h2>Admin dashboard</h2>
+    <div id="stats" class="stats"></div>
+    <h2>Users and their progress</h2>
+    <table><thead><tr><th>Username</th><th>Role</th><th>Quizzes</th><th>Avg score</th><th>Last quiz</th><th></th></tr></thead><tbody id="userRows"></tbody></table>
+    <h2>All quiz records</h2>
+    <table><thead><tr><th>User</th><th>Score</th><th>Date</th></tr></thead><tbody id="recRows"></tbody></table>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let token = "", role = "";
+const LANGS = ["English","Hindi","Bengali","Tamil","Telugu","Marathi","Gujarati","Punjabi","Kannada","Malayalam"];
+
+async function api(path, params = {}) {
+  params.token = token;
+  const res = await fetch("/api/" + path + "?" + new URLSearchParams(params), { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Request failed");
+  return data;
+}
+function show(tab) {
+  document.querySelectorAll(".tab").forEach(s => s.hidden = s.id !== tab);
+  if (tab === "learn") loadStates();
+  if (tab === "progress") loadProgress();
+  if (tab === "admin") loadAdmin();
+}
+function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+/* ---- auth ---- */
+async function auth(kind) {
+  try {
+    const r = await api(kind, { u: $("u").value.trim(), p: $("p").value });
+    if (kind === "register") { $("authMsg").textContent = "Account created. Log in now."; return; }
+    token = r.token; role = r.role;
+    $("auth").hidden = true; $("nav").hidden = false; $("adminBtn").hidden = role !== "admin";
+    show("learn");
+  } catch (e) { $("authMsg").textContent = e.message; }
+}
+$("loginBtn").onclick = () => auth("login");
+$("regBtn").onclick = () => auth("register");
+$("logout").onclick = () => location.reload();
+document.querySelectorAll("nav [data-tab]").forEach(b => b.onclick = () => show(b.dataset.tab));
+
+/* ---- learn ---- */
+let states = [];
+let focusLang = null;
+const EN = ["Hello", "Thank you", "How are you?", "Yes", "No", "Water", "Food"];
+// each phrase: [script, how to say it]
+const L = {
+  Hindi: { script: "Devanagari", p: [["नमस्ते","Namaste"],["धन्यवाद","Dhanyavaad"],["आप कैसे हैं?","Aap kaise hain?"],["हाँ","Haan"],["नहीं","Nahin"],["पानी","Paani"],["खाना","Khaana"]] },
+  Bengali: { script: "Bengali", p: [["নমস্কার","Nomoshkar"],["ধন্যবাদ","Dhonnobad"],["আপনি কেমন আছেন?","Apni kemon achhen?"],["হ্যাঁ","Hyan"],["না","Na"],["জল","Jol"],["খাবার","Khabar"]] },
+  Tamil: { script: "Tamil", p: [["வணக்கம்","Vanakkam"],["நன்றி","Nandri"],["நீங்கள் எப்படி இருக்கிறீர்கள்?","Neengal eppadi irukkireergal?"],["ஆம்","Aam"],["இல்லை","Illai"],["தண்ணீர்","Thanneer"],["உணவு","Unavu"]] },
+  Telugu: { script: "Telugu", p: [["నమస్కారం","Namaskaram"],["ధన్యవాదాలు","Dhanyavaadaalu"],["మీరు ఎలా ఉన్నారు?","Meeru ela unnaru?"],["అవును","Avunu"],["కాదు","Kaadu"],["నీరు","Neeru"],["ఆహారం","Aaharam"]] },
+  Marathi: { script: "Devanagari", p: [["नमस्कार","Namaskar"],["धन्यवाद","Dhanyavaad"],["तुम्ही कसे आहात?","Tumhi kase aahat?"],["होय","Hoy"],["नाही","Naahi"],["पाणी","Paani"],["जेवण","Jevan"]] },
+  Gujarati: { script: "Gujarati", p: [["નમસ્તે","Namaste"],["આભાર","Aabhaar"],["તમે કેમ છો?","Tame kem chho?"],["હા","Haa"],["ના","Naa"],["પાણી","Paani"],["ખાવાનું","Khaavaanu"]] },
+  Punjabi: { script: "Gurmukhi", p: [["ਸਤ ਸ੍ਰੀ ਅਕਾਲ","Sat Sri Akaal"],["ਧੰਨਵਾਦ","Dhanvaad"],["ਤੁਸੀਂ ਕਿਵੇਂ ਹੋ?","Tusi kiven ho?"],["ਹਾਂ","Haan"],["ਨਹੀਂ","Nahin"],["ਪਾਣੀ","Paani"],["ਖਾਣਾ","Khaana"]] },
+  Kannada: { script: "Kannada", p: [["ನಮಸ್ಕಾರ","Namaskara"],["ಧನ್ಯವಾದಗಳು","Dhanyavaadagalu"],["ನೀವು ಹೇಗಿದ್ದೀರಾ?","Neevu hegiddira?"],["ಹೌದು","Haudu"],["ಇಲ್ಲ","Illa"],["ನೀರು","Neeru"],["ಊಟ","Oota"]] },
+  Malayalam: { script: "Malayalam", p: [["നമസ്കാരം","Namaskaram"],["നന്ദി","Nandi"],["സുഖമാണോ?","Sukhamaano?"],["അതെ","Athe"],["അല്ല","Alla"],["വെള്ളം","Vellam"],["ഭക്ഷണം","Bhakshanam"]] },
+  Odia: { script: "Odia", p: [["ନମସ୍କାର","Namaskar"],["ଧନ୍ୟବାଦ","Dhanyabad"],["ଆପଣ କେମିତି ଅଛନ୍ତି?","Apana kemiti achhanti?"],["ହଁ","Han"],["ନା","Na"],["ପାଣି","Pani"],["ଖାଦ୍ୟ","Khadya"]] },
+  Assamese: { script: "Assamese", p: [["নমস্কাৰ","Nomoskar"],["ধন্যবাদ","Dhanyabad"],["আপুনি কেনে আছে?","Apuni kene ase?"],["হয়","Hoi"],["নহয়","Nohoi"],["পানী","Pani"],["খাদ্য","Khadya"]] }
+};
+async function loadStates() {
+  if (!states.length) states = (await api("states")).states;
+  $("chips").innerHTML = Object.keys(L).map(l => `<button class="chip" data-lang="${l}">${l}</button>`).join("");
+  document.querySelectorAll(".chip").forEach(b => b.onclick = () => openLang(b.dataset.lang));
+  renderStates();
+}
+function renderStates() {
+  const f = $("filter").value.toLowerCase();
+  $("stateRows").innerHTML = states.filter(s => (s.state + s.language).toLowerCase().includes(f))
+    .map(s => `<tr data-lang="${esc(s.language)}"><td>${esc(s.state)}</td><td>${esc(s.language)}</td></tr>`).join("");
+}
+$("filter").oninput = renderStates;
+$("stateRows").onclick = e => { const tr = e.target.closest("tr"); if (tr) openLang(tr.dataset.lang); };
+function openLang(l) {
+  const d = L[l];
+  if (!d) { $("detail").innerHTML = `<div class="lesson"><h3>${esc(l)}</h3><p>Lesson coming soon.</p></div>`; return; }
+  const where = states.filter(s => s.language === l).map(s => s.state).join(", ") || "-";
+  $("detail").innerHTML = `<div class="lesson"><h3>${esc(l)}</h3>
+    <p>Spoken in: ${esc(where)}<br>Script: ${esc(d.script)}</p>
+    <table><thead><tr><th>English</th><th>${esc(l)}</th><th>How to say it</th></tr></thead><tbody>` +
+    EN.map((e, i) => `<tr><td>${e}</td><td class="script">${esc(d.p[i][0])}</td><td>${esc(d.p[i][1])}</td></tr>`).join("") +
+    `</tbody></table><button id="practice">Practice ${esc(l)} in a quiz</button></div>`;
+  $("practice").onclick = () => { focusLang = l; $("focusNote").textContent = "Practising: " + l; show("quiz"); };
+  $("detail").scrollIntoView({ behavior: "smooth" });
+}
+
+/* ---- quiz ---- */
+let questions = [], qi = 0, score = 0;
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const shuffle = a => a.map(x => [Math.random(), x]).sort((x, y) => x[0] - y[0]).map(x => x[1]);
+const fmt = (l, i) => `${L[l].p[i][0]} (${L[l].p[i][1]})`;
+function meaningQ() {
+  const l = focusLang || pick(Object.keys(L)), i = Math.floor(Math.random() * EN.length);
+  const wrong = shuffle(EN.filter((_, j) => j !== i)).slice(0, 3);
+  return { q: `In ${l}, what does ${fmt(l, i)} mean?`, options: shuffle([...wrong, EN[i]]), answer: EN[i] };
+}
+function sayQ() {
+  const l = focusLang || pick(Object.keys(L)), i = Math.floor(Math.random() * EN.length);
+  const wrong = shuffle([...EN.keys()].filter(j => j !== i)).slice(0, 3).map(j => fmt(l, j));
+  return { q: `How do you say "${EN[i]}" in ${l}?`, options: shuffle([...wrong, fmt(l, i)]), answer: fmt(l, i) };
+}
+$("startQuiz").onclick = async () => {
+  const t = $("quizType").value;
+  if (t === "state") questions = (await api("quiz", { n: 5 })).questions;
+  else if (t === "meaning") questions = Array.from({ length: 5 }, meaningQ);
+  else if (t === "say") questions = Array.from({ length: 5 }, sayQ);
+  else questions = shuffle([...(await api("quiz", { n: 2 })).questions, meaningQ(), meaningQ(), sayQ()]);
+  qi = 0; score = 0; nextQ();
+};
+function nextQ() {
+  if (qi >= questions.length) return finishQuiz();
+  const q = questions[qi];
+  $("quizBox").innerHTML = `<p class="q">${qi + 1}/${questions.length}. ${esc(q.q)}</p>` +
+    q.options.map(o => `<button class="opt">${esc(o)}</button>`).join("");
+  document.querySelectorAll(".opt").forEach(b => b.onclick = () => {
+    const ok = b.textContent === q.answer;
+    if (ok) score++;
+    document.querySelectorAll(".opt").forEach(x => {
+      x.disabled = true;
+      if (x.textContent === q.answer) x.classList.add("right");
+    });
+    if (!ok) b.classList.add("wrong");
+    setTimeout(() => { qi++; nextQ(); }, 900);
+  });
+}
+async function finishQuiz() {
+  await api("score", { score, total: questions.length });
+  focusLang = null; $("focusNote").textContent = "";
+  $("quizBox").innerHTML = `<p class="result">You scored ${score} out of ${questions.length}. Saved to your progress.</p>`;
+}
+
+/* ---- progress ---- */
+async function loadProgress() {
+  const r = await api("progress");
+  const pct = r.total ? Math.round(100 * r.points / r.total) : 0;
+  $("summary").textContent = `${r.attempts.length} quizzes taken · ${pct}% correct overall`;
+  $("barFill").style.width = pct + "%";
+  $("attempts").innerHTML = r.attempts.map(a => `<tr><td>${esc(a.at)}</td><td>${a.score}/${a.total}</td></tr>`).join("")
+    || `<tr><td colspan="2">No quizzes yet. Take your first quiz.</td></tr>`;
+}
+
+/* ---- translator ---- */
+LANGS.forEach(l => { $("from").add(new Option(l, l)); $("to").add(new Option(l, l)); });
+$("to").value = "Hindi";
+$("swap").onclick = () => { const t = $("from").value; $("from").value = $("to").value; $("to").value = t; };
+$("tBtn").onclick = async () => {
+  try {
+    const r = await api("translate", { word: $("word").value, from: $("from").value, to: $("to").value });
+    $("tOut").textContent = r.result; $("tOut").classList.remove("err");
+  } catch (e) { $("tOut").textContent = e.message; $("tOut").classList.add("err"); }
+};
+
+/* ---- admin ---- */
+async function loadAdmin() {
+  const u = await api("admin/users");
+  $("userRows").innerHTML = u.users.map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.role)}</td><td>${x.quizzes}</td>
+    <td>${x.quizzes ? x.percent + "%" : "-"}</td><td>${esc(x.last)}</td>
+    <td>${x.role === "admin" ? "Admin" : `<button class="danger" data-id="${x.id}">Delete</button>`}</td></tr>`).join("");
+  document.querySelectorAll(".danger").forEach(b => b.onclick = async () => {
+    if (confirm("Delete this user and all their records?")) { await api("admin/delete", { id: b.dataset.id }); loadAdmin(); }
+  });
+  const r = await api("admin/records");
+  $("recRows").innerHTML = r.records.map(x => `<tr><td>${esc(x.user)}</td><td>${x.score}/${x.total}</td><td>${esc(x.at)}</td></tr>`).join("")
+    || `<tr><td colspan="3">No quiz records yet. They appear after users finish a quiz.</td></tr>`;
+  $("stats").innerHTML = `<div><b>${u.users.length}</b> users</div><div><b>${r.records.length}</b> quizzes taken</div>`;
+}
+</script>
+</body>
+</html>
